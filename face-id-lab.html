@@ -1,0 +1,770 @@
+<!DOCTYPE html>
+<html lang="he" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>מעבדת זיהוי פנים</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Heebo:wght@400;500;700;800&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* CCTV control-room: one dark world, amber "REC" accent, cyan machine overlays.
+     Layout: stage + controls on top, 5-step pipeline strip, analytics row. */
+  --bg:#0a0e11;
+  --panel:#11181d;
+  --line:#1e2a31;
+  --ink:#d9e3e8;
+  --muted:#7f929c;
+  --accent:#f2a93b;
+  --machine:#4fd1e8;
+  --good:#5fd08a; --warn:#f2c14e; --bad:#ff6363;
+  --f-body:"Heebo",system-ui,"Segoe UI",Arial,sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+  color-scheme:dark;
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+html,body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5}
+.mono,.num{font-family:var(--f-mono);font-variant-numeric:tabular-nums}
+.wrap{max-width:1440px;margin:0 auto;padding:16px clamp(16px,2vw,28px) 40px;display:grid;gap:16px}
+header{display:flex;flex-wrap:wrap;align-items:center;gap:12px 24px;justify-content:space-between}
+.brand{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+.brand h1{margin:0;font-size:24px;font-weight:800;letter-spacing:.2px;text-wrap:balance}
+.brand .tag{font-family:var(--f-mono);font-size:12px;color:var(--accent);letter-spacing:2px;direction:ltr}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{font-family:var(--f-mono);font-size:12px;border:1px solid var(--line);background:var(--panel);border-radius:999px;padding:3px 10px;color:var(--muted);white-space:nowrap}
+.chip b{color:var(--ink);font-weight:500}
+.chip.ok{border-color:#1f4a33;color:var(--good)}
+.chip.load{border-color:#4a3a1a;color:var(--warn)}
+.chip.err{border-color:#4a1f1f;color:var(--bad)}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:14px}
+.panel h2{margin:0 0 10px;font-size:14px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:8px}
+.panel h2 .en{font-family:var(--f-mono);font-weight:400;font-size:11px;color:var(--muted);direction:ltr}
+.top{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:16px;align-items:start}
+.stagebox{display:grid;gap:10px}
+.stage{position:relative;background:#000;border:1px solid var(--line);border-radius:10px;overflow:hidden;aspect-ratio:16/9}
+.stage canvas{width:100%;height:100%;display:block;object-fit:contain}
+.empty{position:absolute;inset:0;display:grid;place-content:center;gap:12px;text-align:center;padding:24px;color:var(--muted)}
+.empty strong{color:var(--ink);font-size:18px}
+.empty p{margin:0;max-width:52ch}
+.notice{position:absolute;inset-inline:12px;bottom:12px;background:#1b1408ee;border:1px solid #4a3a1a;color:#f6d9a6;border-radius:8px;padding:10px 12px;font-size:13px}
+.bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.spacer{flex:1}
+button,.btn{font-family:var(--f-body);font-size:14px;font-weight:500;color:var(--ink);background:#18232a;border:1px solid #2a3a44;border-radius:7px;padding:7px 12px;cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+button:hover,.btn:hover{border-color:var(--machine)}
+button.primary{background:var(--accent);color:#1a1205;border-color:var(--accent);font-weight:700}
+button.primary:hover{filter:brightness(1.08)}
+button:disabled{opacity:.45;cursor:not-allowed}
+button:focus-visible,.btn:focus-within,input:focus-visible,select:focus-visible{outline:2px solid var(--machine);outline-offset:2px}
+.btn input{display:none}
+.toggles{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:13px;color:var(--muted)}
+.toggles label{display:inline-flex;gap:6px;align-items:center;cursor:pointer}
+input[type=checkbox]{accent-color:var(--machine)}
+.ctrl{display:grid;gap:4px;margin-bottom:10px}
+.ctrl .row{display:flex;justify-content:space-between;font-size:13px}
+.ctrl .row span:first-child{color:var(--muted)}
+.ctrl .row .num{color:var(--ink)}
+input[type=range]{width:100%;accent-color:var(--accent)}
+select,input[type=text]{width:100%;font-family:var(--f-body);font-size:14px;background:#0d1418;color:var(--ink);border:1px solid #2a3a44;border-radius:7px;padding:6px 8px}
+.side{display:grid;gap:16px}
+.seg{display:grid;grid-template-columns:1fr 1fr;border:1px solid #2a3a44;border-radius:7px;overflow:hidden}
+.seg button{border:0;border-radius:0;justify-content:center;background:#0d1418;color:var(--muted)}
+.seg button[aria-pressed=true]{background:#24323a;color:var(--ink)}
+.gallery{display:grid;gap:8px;margin-top:10px}
+.ident{border:1px solid var(--line);border-radius:8px;padding:8px;display:grid;gap:6px;border-inline-start:3px solid var(--c)}
+.ident .hd{display:flex;align-items:center;gap:8px;font-size:14px}
+.ident .hd .n{font-weight:700}
+.ident .hd .meta{font-family:var(--f-mono);font-size:11px;color:var(--muted)}
+.ident .hd button{margin-inline-start:auto;padding:2px 8px;font-size:12px}
+.thumbs{display:flex;gap:4px;flex-wrap:wrap}
+.thumbs img{width:38px;height:38px;border-radius:4px;image-rendering:pixelated;border:1px solid var(--line)}
+.hint{font-size:12px;color:var(--muted);margin:6px 0 0}
+.pipeline{display:grid;grid-template-columns:repeat(5,minmax(0,1fr));gap:12px}
+.step{display:grid;gap:8px;align-content:start}
+.step .k{display:flex;align-items:baseline;gap:8px}
+.step .k .i{font-family:var(--f-mono);color:var(--accent);font-size:13px}
+.step .k h3{margin:0;font-size:15px}
+.step .k .en{font-family:var(--f-mono);font-size:11px;color:var(--muted);margin-inline-start:auto;direction:ltr}
+.step p{margin:0;font-size:12.5px;color:var(--muted)}
+.step canvas{width:100%;background:#000;border-radius:6px;border:1px solid var(--line);image-rendering:pixelated;display:block}
+.pair{display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.pair figure{margin:0;display:grid;gap:3px}
+.pair figcaption{font-size:11px;color:var(--muted);text-align:center}
+.kv{display:grid;grid-template-columns:auto 1fr;gap:2px 10px;font-size:12.5px}
+.kv dt{color:var(--muted)}
+.kv dd{margin:0;font-family:var(--f-mono);text-align:left;direction:ltr}
+.ms{font-family:var(--f-mono);font-size:11px;color:var(--machine);direction:ltr;text-align:left}
+.pill{display:inline-block;font-family:var(--f-body);font-size:12px;font-weight:700;border-radius:999px;padding:1px 9px}
+.pill.good{background:#163323;color:var(--good)}.pill.warn{background:#3a2f12;color:var(--warn)}.pill.bad{background:#3a1616;color:var(--bad)}.pill.idle{background:#1b252b;color:var(--muted)}
+.verdict{font-size:20px;font-weight:800;padding:8px 10px;border-radius:8px;background:#0d1418;border:1px solid var(--line);display:flex;justify-content:space-between;align-items:center;gap:8px}
+.verdict .num{font-size:13px;font-weight:500;color:var(--muted)}
+.mlist{display:grid;gap:6px}
+.mrow{display:grid;gap:2px;font-size:12.5px}
+.mrow .t{display:flex;justify-content:space-between}
+.mrow .t .num{direction:ltr}
+.mtrack{position:relative;height:8px;background:#0d1418;border-radius:4px;direction:ltr}
+.mtrack .f{position:absolute;inset-block:0;left:0;border-radius:4px}
+.mtrack .th{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--ink)}
+.analytics{display:grid;grid-template-columns:1.2fr 1.2fr 1fr;gap:12px}
+.analytics canvas{width:100%;display:block}
+.stats{display:flex;flex-wrap:wrap;gap:8px 16px;font-size:13px;margin-top:8px}
+.stats span{color:var(--muted)}
+.stats b{font-family:var(--f-mono);font-weight:500;color:var(--ink)}
+.legend{display:flex;flex-wrap:wrap;gap:4px 14px;font-size:12px;color:var(--muted);margin-top:6px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:2px;margin-inline-end:5px;vertical-align:-1px}
+.labs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.lab{border-top:2px solid var(--accent);padding-top:8px}
+.lab h3{margin:0 0 4px;font-size:14px}
+.lab p{margin:0;font-size:13px;color:var(--muted)}
+footer{font-size:12px;color:var(--muted)}
+@media (max-width:1100px){.top{grid-template-columns:1fr}.pipeline{grid-template-columns:repeat(2,minmax(0,1fr))}.analytics{grid-template-columns:1fr}.labs{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:560px){.pipeline,.labs{grid-template-columns:1fr}}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+<header>
+  <div class="brand">
+    <h1>מעבדת זיהוי פנים למצלמות אבטחה</h1>
+    <span class="tag">FACE·ID LAB</span>
+  </div>
+  <div class="chips">
+    <span class="chip load" id="chipModels">טוען מודלים…</span>
+    <span class="chip">backend <b id="chipBackend">—</b></span>
+    <span class="chip">FPS <b id="chipFps">—</b></span>
+    <span class="chip">פריים <b id="chipMs">—</b></span>
+  </div>
+</header>
+
+<section class="top">
+  <div class="stagebox">
+    <div class="stage" id="stageWrap">
+      <canvas id="stage" width="1280" height="720" aria-label="תצוגת מצלמה עם שכבות ניתוח"></canvas>
+      <div class="empty" id="empty">
+        <strong>בחרו מקור וידאו</strong>
+        <p>מצלמה חיה, קובץ וידאו מצלמת אבטחה, או תמונה. כל העיבוד רץ בדפדפן הזה, ושום תמונה לא נשלחת לשרת.</p>
+      </div>
+      <div class="notice" id="notice" hidden></div>
+    </div>
+    <div class="bar">
+      <button class="primary" id="btnCam" type="button">הפעל מצלמה</button>
+      <label class="btn" for="fileSrc">פתח תמונה או וידאו<input type="file" id="fileSrc" accept="image/*,video/*"></label>
+      <button id="btnFreeze" type="button" disabled>הקפא פריים</button>
+      <span class="spacer"></span>
+      <div class="toggles" role="group" aria-label="שכבות תצוגה">
+        <label><input type="checkbox" id="lyBox" checked> מלבן</label>
+        <label><input type="checkbox" id="lyLm" checked> 68 נקודות</label>
+        <label><input type="checkbox" id="lyKey" checked> 5 נקודות מפתח</label>
+        <label><input type="checkbox" id="lyLabel" checked> זהות ומרחק</label>
+      </div>
+    </div>
+  </div>
+
+  <div class="side">
+    <div class="panel">
+      <h2>סימולציית מצלמת אבטחה <span class="en">CCTV degradation</span></h2>
+      <div class="ctrl"><div class="row"><span>רזולוציה</span><span class="num" id="vScale">100%</span></div>
+        <input type="range" id="pScale" min="5" max="100" step="1" value="100" aria-label="רזולוציה"></div>
+      <div class="ctrl"><div class="row"><span>טשטוש תנועה / פוקוס</span><span class="num" id="vBlur">0 px</span></div>
+        <input type="range" id="pBlur" min="0" max="6" step="0.5" value="0" aria-label="טשטוש"></div>
+      <div class="ctrl"><div class="row"><span>רעש חיישן (לילה)</span><span class="num" id="vNoise">0</span></div>
+        <input type="range" id="pNoise" min="0" max="60" step="2" value="0" aria-label="רעש"></div>
+      <div class="ctrl"><div class="row"><span>דחיסת JPEG</span><span class="num" id="vJpeg">כבויה</span></div>
+        <input type="range" id="pJpeg" min="2" max="100" step="1" value="100" aria-label="איכות JPEG"></div>
+      <div class="ctrl"><div class="row"><span>מצב תאורה</span></div>
+        <div class="seg" role="group" aria-label="מצב תאורה"><button type="button" id="mDay" aria-pressed="true">יום (צבע)</button><button type="button" id="mIr" aria-pressed="false">לילה (IR)</button></div></div>
+    </div>
+    <div class="panel">
+      <h2>מודל והחלטה <span class="en">model · threshold</span></h2>
+      <div class="ctrl"><div class="row"><span>גלאי פנים</span></div>
+        <select id="pDet" aria-label="גלאי פנים"><option value="ssd">SSD MobileNet v1 (מדויק)</option><option value="tiny">Tiny Face Detector (מהיר)</option></select></div>
+      <div class="ctrl"><div class="row"><span>ביטחון מינימלי לגילוי</span><span class="num" id="vConf">0.50</span></div>
+        <input type="range" id="pConf" min="0.1" max="0.95" step="0.05" value="0.5" aria-label="ביטחון מינימלי"></div>
+      <div class="ctrl"><div class="row"><span>סף התאמה (מרחק)</span><span class="num" id="vThr">0.60</span></div>
+        <input type="range" id="pThr" min="0.25" max="0.95" step="0.01" value="0.6" aria-label="סף התאמה"></div>
+      <div class="toggles"><label><input type="checkbox" id="pAlign" checked> יישור סיבובי לפני ההטבעה</label></div>
+    </div>
+  </div>
+</section>
+
+<section class="pipeline" aria-label="שלבי הצינור">
+  <div class="panel step">
+    <div class="k"><span class="i">01</span><h3>גילוי</h3><span class="en">Detection</span></div>
+    <p>הגלאי רואה רק את הפיקסלים האלה. מוצא מלבן וציון ביטחון.</p>
+    <canvas id="c1" width="320" height="180"></canvas>
+    <dl class="kv"><dt>פנים בפריים</dt><dd id="d1n">—</dd><dt>ביטחון</dt><dd id="d1s">—</dd><dt>גודל מלבן</dt><dd id="d1b">—</dd></dl>
+    <div class="ms" id="t1">— ms</div>
+  </div>
+  <div class="panel step">
+    <div class="k"><span class="i">02</span><h3>נקודות ציון</h3><span class="en">Landmarks</span></div>
+    <p>68 נקודות על קווי המתאר. מהן נגזרות 5 נקודות מפתח.</p>
+    <canvas id="c2" width="200" height="200"></canvas>
+    <dl class="kv"><dt>מרחק בין העיניים</dt><dd id="d2ipd">—</dd><dt>איכות לזיהוי</dt><dd id="d2q"><span class="pill idle">—</span></dd></dl>
+    <div class="ms" id="t2">— ms</div>
+  </div>
+  <div class="panel step">
+    <div class="k"><span class="i">03</span><h3>יישור</h3><span class="en">Alignment</span></div>
+    <p>מסובבים כך שהעיניים על קו אופקי, וחותכים ריבוע קבוע 150×150.</p>
+    <div class="pair">
+      <figure><canvas id="c3a" width="150" height="150"></canvas><figcaption>לפני</figcaption></figure>
+      <figure><canvas id="c3b" width="150" height="150"></canvas><figcaption>אחרי</figcaption></figure>
+    </div>
+    <dl class="kv"><dt>הטיית ראש (roll)</dt><dd id="d3r">—</dd><dt>נכנס לרשת</dt><dd id="d3u">—</dd></dl>
+  </div>
+  <div class="panel step">
+    <div class="k"><span class="i">04</span><h3>הטבעה</h3><span class="en">Embedding</span></div>
+    <p>ResNet-34 ממיר את הפנים לווקטור של 128 מספרים. זו טביעת האצבע.</p>
+    <canvas id="c4" width="320" height="160"></canvas>
+    <dl class="kv"><dt>ממדים</dt><dd>128</dd><dt>נורמה ‖v‖</dt><dd id="d4n">—</dd></dl>
+    <div class="ms" id="t4">— ms</div>
+  </div>
+  <div class="panel step">
+    <div class="k"><span class="i">05</span><h3>השוואה</h3><span class="en">Matching 1:N</span></div>
+    <p>מרחק אוקלידי לכל זהות בגלריה. מתחת לסף = זיהוי.</p>
+    <div class="verdict" id="verdict"><span>אין פנים</span><span class="num"></span></div>
+    <div class="mlist" id="mlist"><p class="hint">הגלריה ריקה. רשמו אדם בפאנל הגלריה.</p></div>
+  </div>
+</section>
+
+<section class="top">
+  <div class="analytics">
+    <div class="panel">
+      <h2>מרחק לאורך זמן <span class="en">best-match distance</span></h2>
+      <canvas id="aTime" width="560" height="200"></canvas>
+      <div class="legend"><span><i style="background:var(--ink)"></i>סף</span><span><i style="background:var(--accent)"></i>לא מוכר</span><span>צבע הנקודה = הזהות הקרובה</span></div>
+    </div>
+    <div class="panel">
+      <h2>אמיתי מול מתחזה <span class="en">genuine vs impostor</span></h2>
+      <canvas id="aHist" width="560" height="200"></canvas>
+      <div class="legend"><span><i style="background:var(--good)"></i>זוגות של אותו אדם</span><span><i style="background:var(--bad)"></i>זוגות של אנשים שונים</span></div>
+      <div class="stats" id="hStats"><span>רשמו לפחות 2 אנשים עם 2 דגימות לכל אחד.</span></div>
+    </div>
+    <div class="panel">
+      <h2>מפת ההטבעות <span class="en">PCA 128→2</span></h2>
+      <canvas id="aPca" width="400" height="200"></canvas>
+      <div class="legend"><span><i style="background:transparent;border:2px solid var(--ink);border-radius:50%"></i>הפנים החיות כעת</span><span>כל נקודה = דגימה בגלריה</span></div>
+    </div>
+  </div>
+  <div class="panel">
+    <h2>גלריה <span class="en">enrollment</span></h2>
+    <div class="ctrl"><div class="row"><span>שם האדם</span></div>
+      <input type="text" id="enName" placeholder="למשל: דנה" autocomplete="off"></div>
+    <div class="bar">
+      <button class="primary" id="btnEnroll5" type="button" disabled>צלם 5 דגימות</button>
+      <button id="btnEnroll1" type="button" disabled>דגימה אחת</button>
+      <label class="btn" for="fileEnroll">מתמונות…<input type="file" id="fileEnroll" accept="image/*" multiple></label>
+    </div>
+    <p class="hint">הרישום שומר רק את הווקטור. שום מודל לא מתאמן מחדש. דגימות מהמצלמה נלקחות אחרי הסימולציה. דגימות מקובץ נלקחות נקיות, כמו תמונת פספורט.</p>
+    <div class="gallery" id="gallery"></div>
+  </div>
+</section>
+
+<section class="panel">
+  <h2>ניסויים לכיתה</h2>
+  <div class="labs">
+    <div class="lab"><h3>יישור</h3><p>רשמו את עצמכם בראש ישר. הטו את הראש ב־20° ובטלו את היישור הסיבובי. מה קורה למרחק בשלב 05?</p></div>
+    <div class="lab"><h3>פיקסלים בין העיניים</h3><p>הורידו רזולוציה בהדרגה. באיזה מרחק בין העיניים הזיהוי נשבר? ובאיזה הגילוי עצמו נשבר?</p></div>
+    <div class="lab"><h3>יום מול לילה</h3><p>רשמו בצבע ועברו ל־IR עם רעש. האם המרחק לאותו אדם מתקרב לסף? מה זה אומר על מצלמות לילה?</p></div>
+    <div class="lab"><h3>הסף הוא החלטה</h3><p>רשמו 3 אנשים או יותר. מצאו סף שבו FAR=0. כמה FRR שילמתם? ומה קורה ל־FAR כשהגלריה גדלה?</p></div>
+  </div>
+</section>
+<footer>מודלים: face-api.js (vladmandic) · גלאי SSD MobileNet v1 / Tiny Face Detector · 68 נקודות ציון · רשת הטבעה ResNet-34 בסגנון dlib, 128 ממדים. סף ברירת המחדל 0.6 הוא הערך המקובל למודל הזה.</footer>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/dist/face-api.js"></script>
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const MODEL_SOURCES = ['./models', 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.15/model'];
+const ID_COLORS = ['#4fd1e8','#f58fd0','#9d8cff','#7ee081','#ffb36b','#6ba8ff','#e8e05f','#ff8f8f'];
+const MAX_BASE = 960, MAX_FACES = 4, CROP = 150;
+
+const S = {
+  ready:false, srcType:null, src:null, video:null, stream:null, frozen:null,
+  dirty:false, busy:false, last:null, gallery:[], timeline:[], frameTimes:[],
+  capture:0, lastCap:0, pca:null,
+  p:{scale:1, blur:0, noise:0, jpeg:1, ir:false, det:'ssd', conf:0.5, thr:0.6, align:true},
+  ly:{box:true, lm:true, key:true, label:true}
+};
+
+const proc = document.createElement('canvas');
+const pctx = proc.getContext('2d', {willReadFrequently:true});
+const stage = $('stage'), sctx = stage.getContext('2d');
+
+/* ---------- models ---------- */
+async function loadModels(){
+  const chip = $('chipModels');
+  if (typeof faceapi === 'undefined'){ chip.className='chip err'; chip.textContent='ספריית face-api לא נטענה'; return; }
+  let ok=false, lastErr;
+  for (const base of MODEL_SOURCES){
+    try{
+      await Promise.all([
+        faceapi.nets.ssdMobilenetv1.loadFromUri(base),
+        faceapi.nets.tinyFaceDetector.loadFromUri(base),
+        faceapi.nets.faceLandmark68Net.loadFromUri(base),
+        faceapi.nets.faceRecognitionNet.loadFromUri(base)
+      ]);
+      ok=true; break;
+    }catch(e){ lastErr=e; }
+  }
+  if(!ok){ chip.className='chip err'; chip.textContent='טעינת המודלים נכשלה'; console.error(lastErr); return; }
+  await faceapi.tf.ready();
+  $('chipBackend').textContent = faceapi.tf.getBackend();
+  chip.className='chip ok'; chip.textContent='מודלים מוכנים';
+  S.ready=true; S.dirty=true; updateButtons();
+}
+
+/* ---------- sources ---------- */
+function showNotice(msg){ const n=$('notice'); n.textContent=msg; n.hidden=!msg; }
+async function startCamera(){
+  showNotice('');
+  if(!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia){
+    showNotice('הדפדפן או התצוגה הזו לא מאפשרים גישה למצלמה. פתחו תמונה או וידאו, או פתחו את קובץ ה־HTML ישירות בכרום.');
+    return;
+  }
+  try{
+    const stream = await navigator.mediaDevices.getUserMedia({video:{width:{ideal:1280},height:{ideal:720}},audio:false});
+    stopSource();
+    const v = document.createElement('video');
+    v.muted=true; v.playsInline=true; v.srcObject=stream;
+    await v.play();
+    S.stream=stream; S.video=v; S.src=v; S.srcType='camera';
+    afterSourceChange();
+  }catch(e){
+    showNotice('הגישה למצלמה נחסמה. בתצוגה המוטמעת כאן המצלמה חסומה. פתחו את קובץ ה־HTML בכרום לשימוש חי, או העלו תמונה או וידאו.');
+  }
+}
+function stopSource(){
+  if(S.stream){ S.stream.getTracks().forEach(t=>t.stop()); S.stream=null; }
+  if(S.video && S.srcType==='video'){ S.video.pause(); URL.revokeObjectURL(S.video.src); }
+  S.video=null; S.frozen=null;
+}
+async function openFile(file){
+  if(!file) return;
+  showNotice('');
+  stopSource();
+  const url = URL.createObjectURL(file);
+  if(file.type.startsWith('video/')){
+    const v=document.createElement('video'); v.muted=true; v.loop=true; v.playsInline=true; v.src=url;
+    try{ await v.play(); }catch(e){ showNotice('לא ניתן לנגן את קובץ הווידאו הזה בדפדפן.'); return; }
+    S.video=v; S.src=v; S.srcType='video';
+  }else{
+    const img = await loadImage(url);
+    S.src=img; S.srcType='image';
+  }
+  afterSourceChange();
+}
+function loadImage(url){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=url; }); }
+function afterSourceChange(){
+  $('empty').hidden=true; S.timeline=[]; S.dirty=true;
+  $('btnFreeze').textContent='הקפא פריים';
+  updateButtons();
+}
+function toggleFreeze(){
+  if(S.frozen){ S.frozen=null; $('btnFreeze').textContent='הקפא פריים'; if(S.video) S.video.play(); S.dirty=true; return; }
+  if(!S.video) return;
+  const c=document.createElement('canvas'); c.width=S.video.videoWidth; c.height=S.video.videoHeight;
+  c.getContext('2d').drawImage(S.video,0,0);
+  S.frozen=c; if(S.srcType==='video') S.video.pause();
+  $('btnFreeze').textContent='המשך'; S.dirty=true;
+}
+function updateButtons(){
+  const live = !!S.src && S.ready;
+  $('btnEnroll5').disabled=!live; $('btnEnroll1').disabled=!live;
+  $('btnFreeze').disabled=!(S.srcType==='camera'||S.srcType==='video');
+}
+function currentSource(){
+  if(S.frozen) return S.frozen;
+  return S.src;
+}
+function srcDims(src){
+  if(src instanceof HTMLVideoElement) return [src.videoWidth, src.videoHeight];
+  if(src instanceof HTMLImageElement) return [src.naturalWidth, src.naturalHeight];
+  return [src.width, src.height];
+}
+
+/* ---------- degradation ---------- */
+async function prepFrame(src, degrade){
+  const [sw,sh]=srcDims(src); if(!sw||!sh) return null;
+  const base = Math.min(1, MAX_BASE/Math.max(sw,sh));
+  const sc = degrade ? S.p.scale : 1;
+  const w = Math.max(16, Math.round(sw*base*sc)), h = Math.max(16, Math.round(sh*base*sc));
+  const cv = degrade ? proc : document.createElement('canvas');
+  cv.width=w; cv.height=h;
+  const ctx = degrade ? pctx : cv.getContext('2d',{willReadFrequently:true});
+  const f=[];
+  if(degrade && S.p.ir) f.push('grayscale(1) contrast(1.35) brightness(1.08)');
+  if(degrade && S.p.blur>0) f.push(`blur(${(S.p.blur*sc).toFixed(2)}px)`);
+  ctx.filter = f.length? f.join(' ') : 'none';
+  ctx.imageSmoothingEnabled=true;
+  ctx.drawImage(src,0,0,w,h);
+  ctx.filter='none';
+  if(degrade && S.p.noise>0){
+    const id=ctx.getImageData(0,0,w,h), d=id.data, a=S.p.noise;
+    for(let i=0;i<d.length;i+=4){ const n=(Math.random()+Math.random()+Math.random()-1.5)*a*1.15; d[i]+=n; d[i+1]+=n; d[i+2]+=n; }
+    ctx.putImageData(id,0,0);
+  }
+  if(degrade && S.p.jpeg<1){
+    const blob = await new Promise(r=>cv.toBlob(r,'image/jpeg',S.p.jpeg));
+    if(blob){ const bm=await createImageBitmap(blob); ctx.drawImage(bm,0,0); bm.close&&bm.close(); }
+  }
+  return cv;
+}
+
+/* ---------- pipeline ---------- */
+function detOptions(){
+  return S.p.det==='tiny'
+    ? new faceapi.TinyFaceDetectorOptions({inputSize:416, scoreThreshold:S.p.conf})
+    : new faceapi.SsdMobilenetv1Options({minConfidence:S.p.conf});
+}
+const mean = pts => { let x=0,y=0; for(const p of pts){x+=p.x;y+=p.y;} return {x:x/pts.length,y:y/pts.length}; };
+const dist2 = (a,b)=>Math.hypot(a.x-b.x,a.y-b.y);
+
+function makeCrop(cv, c, size, angle){
+  const out=document.createElement('canvas'); out.width=CROP; out.height=CROP;
+  const x=out.getContext('2d');
+  x.fillStyle='#000'; x.fillRect(0,0,CROP,CROP);
+  x.imageSmoothingEnabled=true;
+  x.translate(CROP/2,CROP/2); x.scale(CROP/size,CROP/size); x.rotate(-angle); x.translate(-c.x,-c.y);
+  x.drawImage(cv,0,0);
+  return out;
+}
+
+async function analyze(cv, opts={}){
+  const ms={};
+  let t=performance.now();
+  let dets = await faceapi.detectAllFaces(cv, detOptions());
+  ms.det = performance.now()-t;
+  dets = dets.sort((a,b)=>b.box.area-a.box.area).slice(0, opts.maxFaces||MAX_FACES);
+  const faces=[];
+  if(!dets.length) return {faces, ms, w:cv.width, h:cv.height};
+  t=performance.now();
+  const crops = await faceapi.extractFaces(cv, dets);
+  const lms=[];
+  for(let i=0;i<dets.length;i++){
+    const b = dets[i].box.floor().clipAtImageBorders(cv.width, cv.height);
+    const lm = await faceapi.nets.faceLandmark68Net.detectLandmarks(crops[i]);
+    lms.push(lm.shiftBy(b.x,b.y));
+  }
+  ms.lm = performance.now()-t;
+  t=performance.now();
+  for(let i=0;i<dets.length;i++){
+    const P = lms[i].positions;
+    const le = mean(P.slice(36,42)), re = mean(P.slice(42,48)), mouth = mean(P.slice(48,68));
+    const key = {le, re, nose:P[30], ml:P[48], mr:P[54]};
+    const ipd = dist2(le,re);
+    const roll = Math.atan2(re.y-le.y, re.x-le.x);
+    // dlib-style chip, same geometry face-api uses (alignDlib), centred on the reference triangle
+    const ref = mean([le,re,mouth]);
+    const size = Math.max(8, ((dist2(mouth,le)+dist2(mouth,re))/2)/0.45);
+    const center = {x:ref.x, y:ref.y+0.07*size};
+    const cropRaw = makeCrop(cv, center, size, 0);
+    const cropAl = makeCrop(cv, center, size, roll);
+    const desc = await faceapi.nets.faceRecognitionNet.computeFaceDescriptor(S.p.align ? cropAl : cropRaw);
+    faces.push({det:dets[i], score:dets[i].score, box:dets[i].box, pts:P, key, ipd, roll, cropRaw, cropAl, desc});
+  }
+  ms.emb = performance.now()-t;
+  return {faces, ms, w:cv.width, h:cv.height};
+}
+
+function euclid(a,b){ let s=0; for(let i=0;i<a.length;i++){ const d=a[i]-b[i]; s+=d*d; } return Math.sqrt(s); }
+function matchFace(desc){
+  const rows = S.gallery.map(g=>({g, d:Math.min(...g.samples.map(s=>euclid(desc,s.d)))})).sort((a,b)=>a.d-b.d);
+  const best = rows[0];
+  const hit = best && best.d < S.p.thr ? best.g : null;
+  return {rows, best, hit};
+}
+
+/* ---------- frame loop ---------- */
+async function processFrame(){
+  const src=currentSource(); if(!src) return;
+  const t0=performance.now();
+  const cv = await prepFrame(src, true); if(!cv) return;
+  const r = await analyze(cv);
+  r.faces.forEach(f=>f.match=matchFace(f.desc));
+  r.total = performance.now()-t0;
+  S.last=r;
+  const now=performance.now(); S.frameTimes.push(now); while(S.frameTimes.length && now-S.frameTimes[0]>1000) S.frameTimes.shift();
+  const f0=r.faces[0];
+  S.timeline.push(f0 && f0.match.best ? {d:f0.match.best.d, c:f0.match.hit?f0.match.hit.color:null, near:f0.match.best.g.color} : null);
+  if(S.timeline.length>180) S.timeline.shift();
+  if(S.capture>0 && f0 && now-S.lastCap>280){ addSample(f0); S.capture--; S.lastCap=now; }
+  render(r, cv);
+}
+async function tick(){
+  if(S.ready && !S.busy && S.src){
+    const live = (S.srcType==='camera'||S.srcType==='video') && !S.frozen;
+    if(live || S.dirty){
+      S.busy=true; S.dirty=false;
+      try{ await processFrame(); }catch(e){ console.error(e); }
+      S.busy=false;
+    }
+  }
+  requestAnimationFrame(tick);
+}
+
+/* ---------- rendering ---------- */
+function identColorFor(f){ return f.match && f.match.hit ? f.match.hit.color : (S.gallery.length? getCss('--accent') : getCss('--machine')); }
+function getCss(v){ return getComputedStyle(document.documentElement).getPropertyValue(v).trim(); }
+let CSS={};
+function initCss(){ ['--ink','--muted','--accent','--machine','--good','--warn','--bad','--line','--panel'].forEach(k=>CSS[k]=getCss(k)); }
+
+function render(r, cv){
+  const W=1280, H=Math.round(W*cv.height/cv.width);
+  if(stage.height!==H) stage.height=H;
+  $('stageWrap').style.aspectRatio = `${W}/${H}`;
+  sctx.imageSmoothingEnabled=false;
+  sctx.drawImage(cv,0,0,W,H);
+  const k=W/cv.width;
+  for(const f of r.faces){
+    const col = identColorFor(f);
+    if(S.ly.box){ sctx.strokeStyle=col; sctx.lineWidth=3; sctx.strokeRect(f.box.x*k,f.box.y*k,f.box.width*k,f.box.height*k); }
+    if(S.ly.lm){ sctx.fillStyle=CSS['--machine']; for(const p of f.pts){ sctx.beginPath(); sctx.arc(p.x*k,p.y*k,2.2,0,7); sctx.fill(); } }
+    if(S.ly.key){ sctx.fillStyle=CSS['--accent']; for(const p of Object.values(f.key)){ sctx.beginPath(); sctx.arc(p.x*k,p.y*k,5,0,7); sctx.fill(); }
+      sctx.strokeStyle=CSS['--accent']; sctx.lineWidth=1.5; sctx.beginPath(); sctx.moveTo(f.key.le.x*k,f.key.le.y*k); sctx.lineTo(f.key.re.x*k,f.key.re.y*k); sctx.stroke(); }
+    if(S.ly.label){
+      const m=f.match; let name='', dtxt;
+      if(!S.gallery.length) dtxt=`face ${(f.score*100).toFixed(0)}%`;
+      else { name = m.hit? m.hit.name : 'לא מוכר'; dtxt=`d=${m.best.d.toFixed(2)}`; }
+      sctx.font='700 21px Heebo, sans-serif'; const nw=name? sctx.measureText(name).width+12 : 0;
+      sctx.font='600 20px "IBM Plex Mono", monospace'; const dw=sctx.measureText(dtxt).width;
+      const tw=nw+dw+16, x=f.box.x*k, y=Math.max(30,f.box.y*k);
+      sctx.fillStyle=col; sctx.fillRect(x,y-30,tw,28);
+      sctx.fillStyle='#0a0e11'; sctx.direction='ltr'; sctx.textAlign='left'; sctx.fillText(dtxt,x+8,y-9);
+      if(name){ sctx.font='700 21px Heebo, sans-serif'; sctx.direction='rtl'; sctx.textAlign='right'; sctx.fillText(name,x+tw-8,y-9); sctx.direction='ltr'; sctx.textAlign='left'; }
+    }
+  }
+  // HUD
+  sctx.direction='ltr'; sctx.font='500 20px "IBM Plex Mono", monospace';
+  const ts=new Date(); const stamp=ts.toLocaleDateString('en-GB')+' '+ts.toLocaleTimeString('en-GB');
+  hud(`CAM-01  ${S.frozen?'■ FROZEN':'● REC'}`, 16, 34, S.frozen?CSS['--warn']:CSS['--bad']);
+  hud(stamp, W-16-sctx.measureText(stamp).width-12, 34, CSS['--ink']);
+  const info = `${cv.width}×${cv.height}px${S.p.ir?'  IR':''}${S.p.jpeg<1?'  JPEG q'+Math.round(S.p.jpeg*100):''}`;
+  hud(info, 16, H-16, CSS['--ink']);
+
+  // chips
+  $('chipFps').textContent = (S.srcType==='image'||S.frozen)? '—' : S.frameTimes.length;
+  $('chipMs').textContent = r.total.toFixed(0)+' ms';
+  renderSteps(r, cv);
+  renderTimeline(); renderPca(r.faces[0]);
+}
+function hud(t,x,y,col){ const w=sctx.measureText(t).width; sctx.fillStyle='rgba(0,0,0,.55)'; sctx.fillRect(x-6,y-24,w+12,32); sctx.fillStyle=col; sctx.fillText(t,x,y); }
+
+function renderSteps(r, cv){
+  const f=r.faces[0];
+  // 01
+  const c1=$('c1'), x1=c1.getContext('2d');
+  c1.height = Math.round(c1.width*cv.height/cv.width);
+  x1.imageSmoothingEnabled=false; x1.drawImage(cv,0,0,c1.width,c1.height);
+  const k1=c1.width/cv.width;
+  r.faces.forEach((g,i)=>{ x1.strokeStyle=i?CSS['--muted']:CSS['--machine']; x1.lineWidth=2; x1.strokeRect(g.box.x*k1,g.box.y*k1,g.box.width*k1,g.box.height*k1); });
+  $('d1n').textContent=r.faces.length;
+  $('d1s').textContent=f? (f.score*100).toFixed(1)+'%':'—';
+  $('d1b').textContent=f? `${Math.round(f.box.width)}×${Math.round(f.box.height)} px`:'—';
+  $('t1').textContent=`${r.ms.det.toFixed(1)} ms · ${S.p.det==='tiny'?'TinyFD':'SSD MobileNet'}`;
+  // 02
+  const c2=$('c2'), x2=c2.getContext('2d');
+  x2.fillStyle='#000'; x2.fillRect(0,0,c2.width,c2.height);
+  if(f){
+    const pad=f.box.width*0.25, sx=f.box.x-pad, sy=f.box.y-pad, sw=f.box.width+2*pad;
+    const k2=c2.width/sw;
+    x2.imageSmoothingEnabled=false; x2.drawImage(cv,sx,sy,sw,sw,0,0,c2.width,c2.height);
+    x2.fillStyle=CSS['--machine']; for(const p of f.pts){ x2.beginPath(); x2.arc((p.x-sx)*k2,(p.y-sy)*k2,1.8,0,7); x2.fill(); }
+    x2.fillStyle=CSS['--accent']; for(const p of Object.values(f.key)){ x2.beginPath(); x2.arc((p.x-sx)*k2,(p.y-sy)*k2,4,0,7); x2.fill(); }
+    $('d2ipd').textContent=f.ipd.toFixed(1)+' px';
+    const q = f.ipd>=60?['good','טובה']:f.ipd>=35?['warn','גבולית']:['bad','חלשה'];
+    $('d2q').innerHTML=`<span class="pill ${q[0]}">${q[1]}</span>`;
+    $('t2').textContent=`${r.ms.lm.toFixed(1)} ms · 68-point`;
+  }else{ $('d2ipd').textContent='—'; $('d2q').innerHTML='<span class="pill idle">—</span>'; $('t2').textContent='— ms'; }
+  // 03
+  const x3a=$('c3a').getContext('2d'), x3b=$('c3b').getContext('2d');
+  if(f){ x3a.drawImage(f.cropRaw,0,0); x3b.drawImage(f.cropAl,0,0);
+    for(const [x,used] of [[x3a,!S.p.align],[x3b,S.p.align]]){ x.strokeStyle=used?CSS['--accent']:'rgba(0,0,0,0)'; x.lineWidth=4; x.strokeRect(2,2,146,146);
+      x.strokeStyle='rgba(79,209,232,.35)'; x.lineWidth=1; x.beginPath(); x.moveTo(0,62); x.lineTo(150,62); x.stroke(); }
+    $('d3r').textContent=(f.roll*180/Math.PI).toFixed(1)+'°';
+    $('d3u').textContent=S.p.align?'אחרי (מיושר)':'לפני (ללא סיבוב)';
+  }else{ x3a.fillStyle=x3b.fillStyle='#000'; x3a.fillRect(0,0,150,150); x3b.fillRect(0,0,150,150); $('d3r').textContent='—'; $('d3u').textContent='—'; }
+  // 04
+  const c4=$('c4'), x4=c4.getContext('2d');
+  x4.fillStyle='#000'; x4.fillRect(0,0,c4.width,c4.height);
+  if(f){
+    const d=f.desc; let mx=0, n=0; for(const v of d){ mx=Math.max(mx,Math.abs(v)); n+=v*v; }
+    const cols=16, rows=8, cw=c4.width/cols, ch=c4.height/rows;
+    for(let i=0;i<128;i++){ const v=d[i]/mx; x4.fillStyle=divColor(v); x4.fillRect((i%cols)*cw+1,Math.floor(i/cols)*ch+1,cw-2,ch-2); }
+    $('d4n').textContent=Math.sqrt(n).toFixed(3);
+    $('t4').textContent=`${r.ms.emb.toFixed(1)} ms · ResNet-34`;
+  }else{ $('d4n').textContent='—'; $('t4').textContent='— ms'; }
+  // 05
+  const vd=$('verdict'), ml=$('mlist');
+  if(!f){ vd.innerHTML='<span>אין פנים</span><span class="num"></span>'; vd.style.borderColor=''; }
+  else if(!S.gallery.length){ vd.innerHTML='<span>פנים, ללא גלריה</span><span class="num"></span>'; vd.style.borderColor=''; }
+  else{ const m=f.match; vd.innerHTML=`<span style="color:${m.hit?m.hit.color:CSS['--accent']}">${m.hit?esc(m.hit.name):'לא מוכר'}</span><span class="num">d=${m.best.d.toFixed(3)}</span>`; vd.style.borderColor=m.hit?m.hit.color:CSS['--accent']; }
+  if(!S.gallery.length){ ml.innerHTML='<p class="hint">הגלריה ריקה. רשמו אדם בפאנל הגלריה.</p>'; }
+  else if(f){
+    const max=1.2;
+    ml.innerHTML=f.match.rows.map(rw=>`<div class="mrow"><div class="t"><span style="color:${rw.g.color}">${esc(rw.g.name)}</span><span class="num">${rw.d.toFixed(3)}</span></div>
+      <div class="mtrack"><div class="f" style="width:${Math.min(100,rw.d/max*100)}%;background:${rw.d<S.p.thr?rw.g.color:'#3a4a54'}"></div><div class="th" style="left:${S.p.thr/max*100}%"></div></div></div>`).join('')
+      + `<p class="hint">${S.gallery.length} זהויות · ${S.gallery.reduce((a,g)=>a+g.samples.length,0)} השוואות לכל פנים</p>`;
+  }
+}
+function divColor(v){ // cyan (neg) → black → amber (pos)
+  const a=Math.min(1,Math.abs(v));
+  return v<0 ? `rgba(79,209,232,${0.12+0.88*a})` : `rgba(242,169,59,${0.12+0.88*a})`;
+}
+function esc(s){ return s.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+function setupHiDpi(c){ const r=c.getBoundingClientRect(); const dpr=Math.min(2,window.devicePixelRatio||1); const w=Math.max(200,Math.round(r.width)); const h=Math.round(w*c.dataset.ar); if(c.width!==w*dpr){ c.width=w*dpr; c.height=h*dpr; } const x=c.getContext('2d'); x.setTransform(dpr,0,0,dpr,0,0); return [x,w,h]; }
+['aTime','aHist','aPca'].forEach(id=>{ const c=$(id); c.dataset.ar=(c.height/c.width).toString(); });
+
+function axes(x,w,h,pad,xmax,label){
+  x.clearRect(0,0,w,h);
+  x.strokeStyle='#1e2a31'; x.lineWidth=1; x.font='11px "IBM Plex Mono", monospace'; x.fillStyle=CSS['--muted']; x.direction='ltr';
+}
+function renderTimeline(){
+  const [x,w,h]=setupHiDpi($('aTime')); const L=34,R=8,T=8,B=20, ymax=1.2;
+  axes(x,w,h);
+  const Y=v=>T+(1-v/ymax)*(h-T-B);
+  for(const v of [0,0.3,0.6,0.9,1.2]){ x.strokeStyle='#1a252b'; x.beginPath(); x.moveTo(L,Y(v)); x.lineTo(w-R,Y(v)); x.stroke(); x.fillStyle=CSS['--muted']; x.fillText(v.toFixed(1),4,Y(v)+4); }
+  x.fillText('frames →', w-R-62, h-5);
+  x.strokeStyle=CSS['--ink']; x.setLineDash([5,4]); x.beginPath(); x.moveTo(L,Y(S.p.thr)); x.lineTo(w-R,Y(S.p.thr)); x.stroke(); x.setLineDash([]);
+  const N=180, dx=(w-L-R)/(N-1), off=N-S.timeline.length;
+  x.strokeStyle='rgba(217,227,232,.25)'; x.lineWidth=1.2; x.beginPath(); let started=false;
+  S.timeline.forEach((p,i)=>{ if(!p){started=false;return;} const px=L+(i+off)*dx, py=Y(Math.min(ymax,p.d)); if(!started){x.moveTo(px,py);started=true;} else x.lineTo(px,py); });
+  x.stroke();
+  S.timeline.forEach((p,i)=>{ if(!p) return; x.fillStyle=p.c||CSS['--accent']; x.beginPath(); x.arc(L+(i+off)*dx,Y(Math.min(ymax,p.d)),2.4,0,7); x.fill(); });
+  if(!S.gallery.length){ x.fillStyle=CSS['--muted']; x.font='13px Heebo, sans-serif'; x.direction='rtl'; x.textAlign='center'; x.fillText('המרחק יופיע אחרי רישום אדם לגלריה',(w+L)/2,h/2); x.textAlign='start'; }
+}
+
+function pairs(){
+  const all=[]; S.gallery.forEach(g=>g.samples.forEach(s=>all.push({g,d:s.d})));
+  const gen=[], imp=[];
+  for(let i=0;i<all.length;i++) for(let j=i+1;j<all.length;j++){ const d=euclid(all[i].d,all[j].d); (all[i].g===all[j].g?gen:imp).push(d); }
+  return {gen,imp};
+}
+function renderHist(){
+  const [x,w,h]=setupHiDpi($('aHist')); const L=30,R=8,T=8,B=20, xmax=1.2, nb=30;
+  axes(x,w,h);
+  const {gen,imp}=pairs();
+  const X=v=>L+v/xmax*(w-L-R);
+  for(const v of [0,0.3,0.6,0.9,1.2]){ x.fillStyle=CSS['--muted']; x.fillText(v.toFixed(1),X(v)-10,h-5); x.strokeStyle='#1a252b'; x.beginPath(); x.moveTo(X(v),T); x.lineTo(X(v),h-B); x.stroke(); }
+  const ok = gen.length>0 && imp.length>0;
+  if(!gen.length && !imp.length){ x.fillStyle=CSS['--muted']; x.font='13px Heebo, sans-serif'; x.direction='rtl'; x.textAlign='center'; x.fillText('אין עדיין זוגות להשוואה',(w+L)/2,h/2); x.textAlign='start'; }
+  const bin=a=>{ const b=new Array(nb).fill(0); a.forEach(v=>b[Math.min(nb-1,Math.floor(v/xmax*nb))]++); const s=a.length||1; return b.map(c=>c/s); };
+  const bg=bin(gen), bi=bin(imp), m=Math.max(0.01,...bg,...bi), bw=(w-L-R)/nb;
+  const draw=(b,col)=>{ x.fillStyle=col; b.forEach((v,i)=>{ if(!v) return; const bh=v/m*(h-T-B); x.fillRect(L+i*bw+1,h-B-bh,bw-2,bh); }); };
+  x.globalAlpha=.75; draw(bi,CSS['--bad']); draw(bg,CSS['--good']); x.globalAlpha=1;
+  x.strokeStyle=CSS['--ink']; x.lineWidth=2; x.setLineDash([5,4]); x.beginPath(); x.moveTo(X(S.p.thr),T); x.lineTo(X(S.p.thr),h-B); x.stroke(); x.setLineDash([]);
+  const st=$('hStats');
+  if(!ok){ st.innerHTML='<span>רשמו לפחות 2 אנשים עם 2 דגימות לכל אחד.</span>'; return; }
+  const frr=gen.filter(d=>d>=S.p.thr).length/gen.length, far=imp.filter(d=>d<S.p.thr).length/imp.length;
+  let eer=null, best=9; for(let t=0;t<=1.5;t+=0.005){ const a=imp.filter(d=>d<t).length/imp.length, b=gen.filter(d=>d>=t).length/gen.length; if(Math.abs(a-b)<best){best=Math.abs(a-b); eer={t,v:(a+b)/2};} }
+  const N=S.gallery.length, far1n=1-Math.pow(1-far,N);
+  st.innerHTML=`<span>FAR <b>${(far*100).toFixed(1)}%</b></span><span>FRR <b>${(frr*100).toFixed(1)}%</b></span><span>EER <b>${(eer.v*100).toFixed(1)}%</b> @ <b>${eer.t.toFixed(2)}</b></span><span>זר שמזוהה בטעות מול ${N} זהויות <b>${(far1n*100).toFixed(1)}%</b></span><span>זוגות <b>${gen.length}</b> / <b>${imp.length}</b></span>`;
+}
+
+function computePca(){
+  const X=[]; S.gallery.forEach(g=>g.samples.forEach(s=>X.push({v:s.d,c:g.color})));
+  if(X.length<3){ S.pca=null; return; }
+  const D=128, mu=new Float64Array(D); X.forEach(p=>{ for(let i=0;i<D;i++) mu[i]+=p.v[i]/X.length; });
+  const C=X.map(p=>{ const r=new Float64Array(D); for(let i=0;i<D;i++) r[i]=p.v[i]-mu[i]; return r; });
+  const comps=[];
+  for(let k=0;k<2;k++){
+    let v=new Float64Array(D).map(()=>Math.random()-0.5);
+    for(let it=0;it<60;it++){
+      const nv=new Float64Array(D);
+      for(const r of C){ let dot=0; for(let i=0;i<D;i++) dot+=r[i]*v[i]; for(let i=0;i<D;i++) nv[i]+=dot*r[i]; }
+      for(const pc of comps){ let dot=0; for(let i=0;i<D;i++) dot+=nv[i]*pc[i]; for(let i=0;i<D;i++) nv[i]-=dot*pc[i]; }
+      let n=0; for(let i=0;i<D;i++) n+=nv[i]*nv[i]; n=Math.sqrt(n)||1; for(let i=0;i<D;i++) nv[i]/=n; v=nv;
+    }
+    comps.push(v);
+  }
+  const proj=v=>comps.map(pc=>{ let s=0; for(let i=0;i<D;i++) s+=(v[i]-mu[i])*pc[i]; return s; });
+  const pts=X.map(p=>({xy:proj(p.v),c:p.c}));
+  let ext=0.05; pts.forEach(p=>ext=Math.max(ext,Math.abs(p.xy[0]),Math.abs(p.xy[1])));
+  S.pca={proj,pts,ext:ext*1.25};
+}
+function renderPca(face){
+  const [x,w,h]=setupHiDpi($('aPca'));
+  x.clearRect(0,0,w,h);
+  x.strokeStyle='#1a252b'; x.lineWidth=1; x.beginPath(); x.moveTo(w/2,0); x.lineTo(w/2,h); x.moveTo(0,h/2); x.lineTo(w,h/2); x.stroke();
+  if(!S.pca){ x.fillStyle=CSS['--muted']; x.font='13px Heebo, sans-serif'; x.direction='rtl'; x.textAlign='center'; x.fillText('צריך לפחות 3 דגימות בגלריה',w/2,h/2-8); x.textAlign='start'; return; }
+  const s=Math.min(w,h)/2/S.pca.ext, P=xy=>[w/2+xy[0]*s, h/2-xy[1]*s];
+  S.pca.pts.forEach(p=>{ const [a,b]=P(p.xy); x.fillStyle=p.c; x.beginPath(); x.arc(a,b,5,0,7); x.fill(); });
+  if(face){ const xy=S.pca.proj(face.desc); let [a,b]=P(xy); a=Math.max(8,Math.min(w-8,a)); b=Math.max(8,Math.min(h-8,b)); x.strokeStyle=CSS['--ink']; x.lineWidth=2.5; x.beginPath(); x.arc(a,b,8,0,7); x.stroke(); }
+}
+
+/* ---------- gallery ---------- */
+function getIdentity(name){
+  name=(name||'').trim() || `אדם ${S.gallery.length+1}`;
+  let g=S.gallery.find(x=>x.name===name);
+  if(!g){ g={name, color:ID_COLORS[S.gallery.length%ID_COLORS.length], samples:[]}; S.gallery.push(g); }
+  return g;
+}
+function addSample(face, name){
+  const g=getIdentity(name!==undefined?name:$('enName').value);
+  if(!$('enName').value.trim()) $('enName').value=g.name;
+  const t=document.createElement('canvas'); t.width=t.height=48; t.getContext('2d').drawImage(S.p.align?face.cropAl:face.cropRaw,0,0,48,48);
+  g.samples.push({d:face.desc, thumb:t.toDataURL('image/png'), ipd:face.ipd});
+  galleryChanged();
+}
+function galleryChanged(){
+  computePca(); renderGallery(); renderHist(); S.dirty=true;
+}
+function renderGallery(){
+  const el=$('gallery');
+  el.innerHTML=S.gallery.map((g,gi)=>{
+    let spread='—'; if(g.samples.length>1){ let s=0,n=0; for(let i=0;i<g.samples.length;i++) for(let j=i+1;j<g.samples.length;j++){ s+=euclid(g.samples[i].d,g.samples[j].d); n++; } spread=(s/n).toFixed(3); }
+    return `<div class="ident" style="--c:${g.color}"><div class="hd"><span class="n" style="color:${g.color}">${esc(g.name)}</span><span class="meta">${g.samples.length} דגימות · פיזור ${spread}</span><button type="button" data-del="${gi}">מחק</button></div>
+      <div class="thumbs">${g.samples.map(s=>`<img src="${s.thumb}" alt="" title="IPD ${s.ipd.toFixed(0)}px">`).join('')}</div></div>`;
+  }).join('') || '<p class="hint">עוד לא נרשם אף אחד.</p>';
+}
+$('gallery').addEventListener('click',e=>{ const b=e.target.closest('[data-del]'); if(!b) return; S.gallery.splice(+b.dataset.del,1); S.gallery.forEach((g,i)=>g.color=ID_COLORS[i%ID_COLORS.length]); galleryChanged(); });
+
+async function enrollFiles(files){
+  if(!S.ready) return;
+  const name=$('enName').value;
+  let added=0, missed=0;
+  for(const f of files){
+    try{
+      const img=await loadImage(URL.createObjectURL(f));
+      const cv=await prepFrame(img,false);
+      const r=await analyze(cv,{maxFaces:1});
+      if(r.faces[0]){ addSample(r.faces[0], name); added++; } else missed++;
+    }catch(e){ missed++; }
+  }
+  showNotice(missed? `נרשמו ${added} דגימות. ב־${missed} תמונות לא נמצאו פנים.` : '');
+}
+
+/* ---------- controls ---------- */
+function bindRange(id, out, fn, fmt){ const el=$(id); const upd=()=>{ fn(+el.value); $(out).textContent=fmt(+el.value); S.dirty=true; }; el.addEventListener('input',upd); upd(); }
+bindRange('pScale','vScale',v=>S.p.scale=v/100,v=>v+'%');
+bindRange('pBlur','vBlur',v=>S.p.blur=v,v=>v+' px');
+bindRange('pNoise','vNoise',v=>S.p.noise=v,v=>v? 'σ≈'+v : '0');
+bindRange('pJpeg','vJpeg',v=>S.p.jpeg=v/100,v=>v>=100?'כבויה':'q='+v);
+bindRange('pConf','vConf',v=>S.p.conf=v,v=>v.toFixed(2));
+bindRange('pThr','vThr',v=>{ S.p.thr=v; if(CSS['--ink']) renderHist(); },v=>v.toFixed(2));
+$('pDet').addEventListener('change',e=>{ S.p.det=e.target.value; S.dirty=true; });
+$('pAlign').addEventListener('change',e=>{ S.p.align=e.target.checked; S.dirty=true; });
+const setIr=on=>{ S.p.ir=on; $('mDay').setAttribute('aria-pressed',!on); $('mIr').setAttribute('aria-pressed',on); S.dirty=true; };
+$('mDay').onclick=()=>setIr(false); $('mIr').onclick=()=>setIr(true);
+[['lyBox','box'],['lyLm','lm'],['lyKey','key'],['lyLabel','label']].forEach(([id,k])=>$(id).addEventListener('change',e=>{ S.ly[k]=e.target.checked; S.dirty=true; }));
+$('btnCam').onclick=startCamera;
+$('fileSrc').addEventListener('change',e=>{ openFile(e.target.files[0]); e.target.value=''; });
+$('btnFreeze').onclick=toggleFreeze;
+$('btnEnroll5').onclick=()=>{ S.capture=5; S.lastCap=0; if(S.srcType==='image'||S.frozen){ S.capture=0; if(S.last&&S.last.faces[0]) addSample(S.last.faces[0]); } };
+$('btnEnroll1').onclick=()=>{ if(S.last&&S.last.faces[0]) addSample(S.last.faces[0]); else showNotice('אין פנים בפריים הנוכחי.'); };
+$('fileEnroll').addEventListener('change',e=>{ enrollFiles([...e.target.files]); e.target.value=''; });
+window.addEventListener('resize',()=>{ renderHist(); renderTimeline(); renderPca(S.last&&S.last.faces[0]); });
+
+// test hooks
+window.__lab = {S, openFile, enrollFiles, analyze};
+
+initCss(); renderGallery(); renderHist(); renderTimeline(); renderPca(null);
+loadModels(); requestAnimationFrame(tick);
+})();
+</script>
+</body>
+</html>
